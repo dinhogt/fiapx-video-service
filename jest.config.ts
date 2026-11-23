@@ -5,6 +5,7 @@ const config: Config = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
   testRegex: '.*\\.(spec|int-spec)\\.ts$',
+  testPathIgnorePatterns: ['/node_modules/', '/packages/', '/dist/'],
   transform: { '^.+\\.ts$': 'ts-jest' },
   testEnvironment: 'node',
   collectCoverageFrom: [

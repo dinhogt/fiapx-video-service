@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "nest build",
     "start": "node dist/main.js",

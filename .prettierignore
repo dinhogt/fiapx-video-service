@@ -1,5 +1,7 @@
 dist
+packages/*/dist
 coverage
+packages/*/coverage
 node_modules
 .yarn
 yarn.lock

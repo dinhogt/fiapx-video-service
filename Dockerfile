@@ -5,6 +5,7 @@ WORKDIR /app
 RUN corepack enable
 COPY package.json yarn.lock .yarnrc.yml ./
 COPY .yarn ./.yarn
+COPY packages ./packages
 RUN --mount=type=secret,id=npm_token NPM_TOKEN=$(cat /run/secrets/npm_token 2>/dev/null || true) yarn install --immutable
 COPY tsconfig*.json nest-cli.json ./
 COPY prisma ./prisma

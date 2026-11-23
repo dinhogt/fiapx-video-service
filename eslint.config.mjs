@@ -6,11 +6,14 @@ export default tseslint.config(
   {
     ignores: [
       'dist/**',
+      'packages/*/dist/**',
       'coverage/**',
+      'packages/*/coverage/**',
       'node_modules/**',
       '.yarn/**',
       '**/*.cjs',
       'eslint.config.mjs',
+      'packages/*/jest.config.ts',
     ],
   },
   eslint.configs.recommended,

@@ -1,0 +1,373 @@
+# Ambiente local FIAP X (B12, ADR-010/011).
+# Clones irmãos esperados em ../fiapx-*.
+# `make up` sobe infra + observabilidade. Apps/migrações usam profile `apps`.
+
+name: fiapx
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: fiapx
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: fiapx
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fiapx -d fiapx']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [fiapx]
+
+  redis:
+    image: redis:7
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [fiapx]
+
+  localstack:
+    image: localstack/localstack:4
+    environment:
+      SERVICES: s3,sqs,sns
+      DEBUG: '0'
+      AWS_DEFAULT_REGION: us-east-1
+      DOCKER_HOST: unix:///var/run/docker.sock
+    ports:
+      - '4566:4566'
+    volumes:
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:4566/_localstack/health']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks: [fiapx]
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [fiapx]
+
+  alloy:
+    image: grafana/alloy:v1.5.1
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=generally-available
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+      - '12345:12345'
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      # Imagem do Alloy não traz curl/wget
+      test: ['CMD-SHELL', 'bash -c "exec 3<>/dev/tcp/127.0.0.1/12345"']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [fiapx]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+      - --web.enable-lifecycle
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:9090/-/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [fiapx]
+
+  loki:
+    image: grafana/loki:3.2.1
+    command: ['-config.file=/etc/loki/loki-config.yml']
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3100/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [fiapx]
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ['-config.file=/etc/tempo/tempo-config.yml']
+    ports:
+      - '3200:3200'
+    volumes:
+      - ./observability/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
+      - tempo_data:/var/tempo
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3200/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [fiapx]
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/health | grep -q ok']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [fiapx]
+
+  # --- Profile apps (ativado quando F1.6/F2+ estiverem prontos) ---
+  migrate-auth:
+    profiles: [apps]
+    image: node:22-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ../fiapx-auth-service:/app
+    command: ['bash', '-lc', 'corepack enable && yarn prisma migrate deploy']
+    environment:
+      DATABASE_URL: postgresql://auth_svc:change-me@postgres:5432/fiapx?schema=auth&connection_limit=5&sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [fiapx]
+
+  migrate-video:
+    profiles: [apps]
+    image: node:22-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: ['bash', '-lc', 'corepack enable && yarn prisma migrate deploy']
+    environment:
+      DATABASE_URL: postgresql://video_svc:change-me@postgres:5432/fiapx?schema=video&connection_limit=5&sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [fiapx]
+
+  migrate-notification:
+    profiles: [apps]
+    image: node:22-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ../fiapx-notification-service:/app
+    command: ['bash', '-lc', 'corepack enable && yarn prisma migrate deploy']
+    environment:
+      DATABASE_URL: postgresql://notification_svc:change-me@postgres:5432/fiapx?schema=notification&connection_limit=3&sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [fiapx]
+
+  auth-service:
+    profiles: [apps]
+    build:
+      context: ../fiapx-auth-service
+      secrets:
+        - npm_token
+    ports:
+      - '3001:3000'
+    environment: &app-aws
+      NODE_ENV: development
+      APP_ENV: local
+      PORT: '3000'
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      OTEL_SERVICE_NAME: auth-service
+      DATABASE_URL: postgresql://auth_svc:change-me@postgres:5432/fiapx?schema=auth&connection_limit=5&sslmode=disable
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate-auth:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [fiapx]
+
+  video-service:
+    profiles: [apps]
+    build:
+      context: .
+      secrets:
+        - npm_token
+    ports:
+      - '3002:3000'
+    environment:
+      <<: *app-aws
+      OTEL_SERVICE_NAME: video-service
+      DATABASE_URL: postgresql://video_svc:change-me@postgres:5432/fiapx?schema=video&connection_limit=5&sslmode=disable
+      REDIS_URL: redis://redis:6379
+      S3_BUCKET: fiapx-local-videos
+      S3_ENDPOINT: http://localstack:4566
+      S3_PUBLIC_ENDPOINT: http://localhost:4566
+      VIDEO_PROCESS_QUEUE_URL: http://localstack:4566/000000000000/fiapx-local-video-process
+      VIDEO_STATUS_QUEUE_URL: http://localstack:4566/000000000000/fiapx-local-video-status-updates
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate-video:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [fiapx]
+
+  video-worker:
+    profiles: [apps]
+    build:
+      context: ../fiapx-video-worker
+      secrets:
+        - npm_token
+    environment:
+      <<: *app-aws
+      OTEL_SERVICE_NAME: video-worker
+      S3_BUCKET: fiapx-local-videos
+      S3_ENDPOINT: http://localstack:4566
+      VIDEO_PROCESS_QUEUE_URL: http://localstack:4566/000000000000/fiapx-local-video-process
+      VIDEO_EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:fiapx-local-video-events
+      WORKER_CONCURRENCY: '1'
+      MAX_FRAMES: '3600'
+      PROCESS_TIMEOUT_MS: '900000'
+    depends_on:
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [fiapx]
+
+  notification-service:
+    profiles: [apps]
+    build:
+      context: ../fiapx-notification-service
+      secrets:
+        - npm_token
+    environment:
+      <<: *app-aws
+      OTEL_SERVICE_NAME: notification-service
+      DATABASE_URL: postgresql://notification_svc:change-me@postgres:5432/fiapx?schema=notification&connection_limit=3&sslmode=disable
+      NOTIFICATIONS_QUEUE_URL: http://localstack:4566/000000000000/fiapx-local-notifications
+      USER_CONTACTS_QUEUE_URL: http://localstack:4566/000000000000/fiapx-local-user-contacts
+      EMAIL_PROVIDER: smtp
+      EMAIL_FROM: noreply@fiapx.local
+      SMTP_HOST: mailpit
+      SMTP_PORT: '1025'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+      migrate-notification:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [fiapx]
+
+secrets:
+  npm_token:
+    environment: NPM_TOKEN
+
+volumes:
+  postgres_data:
+  redis_data:
+  localstack_data:
+  alloy_data:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:
+
+networks:
+  fiapx:
+    driver: bridge

@@ -1,0 +1,56 @@
+groups:
+  - name: fiapx
+    rules:
+      - alert: DLQNotEmpty
+        expr: dlq_messages > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'DLQ com mensagens'
+          runbook: 'docs/runbooks/dlq.md'
+
+      - alert: VideosStuckQueued
+        expr: videos_stuck_queued > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Vídeos em QUEUED há mais de 5 min'
+          runbook: 'docs/runbooks/videos-stuck.md'
+
+      - alert: HighFailureRate
+        expr: (sum(rate(videos_processed_total{status="FAILED"}[15m])) / clamp_min(sum(rate(videos_processed_total[15m])), 1)) > 0.1
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Taxa de falha > 10% em 15 min'
+          runbook: 'docs/runbooks/high-failure-rate.md'
+
+      - alert: OutboxLagging
+        expr: outbox_oldest_pending_seconds > 60
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Outbox com atraso > 60s'
+          runbook: 'docs/runbooks/outbox.md'
+
+      - alert: ApiLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route!~"/auth/login|/auth/register|/videos/.*/download"}[5m])) by (le)) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'API p95 > 300ms'
+          runbook: 'docs/runbooks/api-latency.md'
+
+      - alert: RedisUnavailable
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Redis indisponível'
+          runbook: 'docs/runbooks/redis.md'

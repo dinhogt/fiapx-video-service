@@ -8,6 +8,11 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dinhogt/fiapx-video-service.git",
+    "directory": "packages/contracts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "jest --config jest.config.ts",

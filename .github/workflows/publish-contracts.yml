@@ -1,0 +1,49 @@
+name: Publish fiapx-contracts
+
+# Publica @dinhogt/fiapx-contracts no GitHub Packages (B11).
+# Tag: contracts-v1.0.0 (versão deve bater com packages/contracts/package.json)
+
+on:
+  push:
+    tags:
+      - 'contracts-v*'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite publish para confirmar publicação manual da versão em package.json'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || github.event.inputs.confirm == 'publish'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@dinhogt'
+
+      - name: Enable Yarn 4
+        run: corepack enable
+
+      - name: Install (workspace root)
+        run: yarn install --immutable
+
+      - name: Test & build contracts
+        run: |
+          yarn workspace @dinhogt/fiapx-contracts test
+          yarn workspace @dinhogt/fiapx-contracts build
+
+      - name: Publish
+        working-directory: packages/contracts
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

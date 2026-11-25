@@ -16,12 +16,8 @@ create_queue() {
   local retention="$3"
   awslocal sqs create-queue \
     --queue-name "${name}" \
-    --attributes "{
-      \"VisibilityTimeout\": \"${visibility}\",
-      \"MessageRetentionPeriod\": \"${retention}\",
-      \"ReceiveMessageWaitTimeSeconds\": \"20\",
-      \"SqsManagedSseEnabled\": \"true\"
-    }" >/dev/null
+    --attributes "VisibilityTimeout=${visibility},MessageRetentionPeriod=${retention},ReceiveMessageWaitTimeSeconds=20,SqsManagedSseEnabled=true" \
+    >/dev/null
 }
 
 create_queue_with_dlq() {
@@ -38,15 +34,22 @@ create_queue_with_dlq() {
   local dlq_arn
   dlq_arn="$(awslocal sqs get-queue-attributes --queue-url "${dlq_url}" --attribute-names QueueArn --query Attributes.QueueArn --output text)"
 
+  local attrs_file
+  attrs_file="$(mktemp)"
+  cat >"${attrs_file}" <<EOF
+{
+  "VisibilityTimeout": "${visibility}",
+  "MessageRetentionPeriod": "${retention}",
+  "ReceiveMessageWaitTimeSeconds": "20",
+  "SqsManagedSseEnabled": "true",
+  "RedrivePolicy": "{\"deadLetterTargetArn\":\"${dlq_arn}\",\"maxReceiveCount\":\"${max_receive}\"}"
+}
+EOF
   awslocal sqs create-queue \
     --queue-name "${name}" \
-    --attributes "{
-      \"VisibilityTimeout\": \"${visibility}\",
-      \"MessageRetentionPeriod\": \"${retention}\",
-      \"ReceiveMessageWaitTimeSeconds\": \"20\",
-      \"SqsManagedSseEnabled\": \"true\",
-      \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"${dlq_arn}\\\",\\\"maxReceiveCount\\\":\\\"${max_receive}\\\"}\"
-    }" >/dev/null
+    --attributes "file://${attrs_file}" \
+    >/dev/null
+  rm -f "${attrs_file}"
 }
 
 # 4 filas + 4 DLQs (B8)
@@ -65,77 +68,105 @@ STATUS_ARN="$(queue_arn "fiapx-${ENV}-video-status-updates")"
 NOTIF_ARN="$(queue_arn "fiapx-${ENV}-notifications")"
 CONTACTS_ARN="$(queue_arn "fiapx-${ENV}-user-contacts")"
 
-# Tópicos SNS (B8)
 VIDEO_TOPIC_ARN="$(awslocal sns create-topic --name "fiapx-${ENV}-video-events" --query TopicArn --output text)"
 USER_TOPIC_ARN="$(awslocal sns create-topic --name "fiapx-${ENV}-user-events" --query TopicArn --output text)"
 
-# Permitir SNS → SQS
-awslocal sqs set-queue-attributes \
-  --queue-url "$(awslocal sqs get-queue-url --queue-name "fiapx-${ENV}-video-status-updates" --query QueueUrl --output text)" \
-  --attributes "{\"Policy\": \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Principal\\\":\\\"*\\\",\\\"Action\\\":\\\"sqs:SendMessage\\\",\\\"Resource\\\":\\\"${STATUS_ARN}\\\",\\\"Condition\\\":{\\\"ArnEquals\\\":{\\\"aws:SourceArn\\\":\\\"${VIDEO_TOPIC_ARN}\\\"}}}]}\"}" >/dev/null
+# Política SQS←SNS (LocalStack não impõe IAM; mantemos para paridade)
+allow_sns_to_sqs() {
+  local queue_name="$1"
+  local queue_arn="$2"
+  local topic_arn="$3"
+  local queue_url
+  queue_url="$(awslocal sqs get-queue-url --queue-name "${queue_name}" --query QueueUrl --output text)"
+  local attrs_file
+  attrs_file="$(mktemp)"
+  cat >"${attrs_file}" <<EOF
+{
+  "Policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"sqs:SendMessage\",\"Resource\":\"${queue_arn}\",\"Condition\":{\"ArnEquals\":{\"aws:SourceArn\":\"${topic_arn}\"}}}]}"
+}
+EOF
+  awslocal sqs set-queue-attributes \
+    --queue-url "${queue_url}" \
+    --attributes "file://${attrs_file}" \
+    >/dev/null
+  rm -f "${attrs_file}"
+}
 
-awslocal sqs set-queue-attributes \
-  --queue-url "$(awslocal sqs get-queue-url --queue-name "fiapx-${ENV}-notifications" --query QueueUrl --output text)" \
-  --attributes "{\"Policy\": \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Principal\\\":\\\"*\\\",\\\"Action\\\":\\\"sqs:SendMessage\\\",\\\"Resource\\\":\\\"${NOTIF_ARN}\\\",\\\"Condition\\\":{\\\"ArnEquals\\\":{\\\"aws:SourceArn\\\":\\\"${VIDEO_TOPIC_ARN}\\\"}}}]}\"}" >/dev/null
+allow_sns_to_sqs "fiapx-${ENV}-video-status-updates" "${STATUS_ARN}" "${VIDEO_TOPIC_ARN}"
+allow_sns_to_sqs "fiapx-${ENV}-notifications" "${NOTIF_ARN}" "${VIDEO_TOPIC_ARN}"
+allow_sns_to_sqs "fiapx-${ENV}-user-contacts" "${CONTACTS_ARN}" "${USER_TOPIC_ARN}"
 
-awslocal sqs set-queue-attributes \
-  --queue-url "$(awslocal sqs get-queue-url --queue-name "fiapx-${ENV}-user-contacts" --query QueueUrl --output text)" \
-  --attributes "{\"Policy\": \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Principal\\\":\\\"*\\\",\\\"Action\\\":\\\"sqs:SendMessage\\\",\\\"Resource\\\":\\\"${CONTACTS_ARN}\\\",\\\"Condition\\\":{\\\"ArnEquals\\\":{\\\"aws:SourceArn\\\":\\\"${USER_TOPIC_ARN}\\\"}}}]}\"}" >/dev/null
+subscribe_sqs() {
+  local topic_arn="$1"
+  local queue_arn="$2"
+  local filter_json="${3:-}"
 
-# Inscrições: status (todos), notifications (video.failed), contacts (user.registered)
-awslocal sns subscribe \
-  --topic-arn "${VIDEO_TOPIC_ARN}" \
-  --protocol sqs \
-  --notification-endpoint "${STATUS_ARN}" \
-  --attributes RawMessageDelivery=true >/dev/null
+  local sub_arn
+  sub_arn="$(awslocal sns subscribe \
+    --topic-arn "${topic_arn}" \
+    --protocol sqs \
+    --notification-endpoint "${queue_arn}" \
+    --attributes RawMessageDelivery=true \
+    --query SubscriptionArn --output text)"
 
-awslocal sns subscribe \
-  --topic-arn "${VIDEO_TOPIC_ARN}" \
-  --protocol sqs \
-  --notification-endpoint "${NOTIF_ARN}" \
-  --attributes "RawMessageDelivery=true,FilterPolicyScope=MessageBody,FilterPolicy={\"type\":[\"video.failed\"]}" >/dev/null
+  if [[ -n "${filter_json}" ]]; then
+    awslocal sns set-subscription-attributes \
+      --subscription-arn "${sub_arn}" \
+      --attribute-name FilterPolicyScope \
+      --attribute-value MessageBody
+    awslocal sns set-subscription-attributes \
+      --subscription-arn "${sub_arn}" \
+      --attribute-name FilterPolicy \
+      --attribute-value "${filter_json}"
+  fi
+}
 
-awslocal sns subscribe \
-  --topic-arn "${USER_TOPIC_ARN}" \
-  --protocol sqs \
-  --notification-endpoint "${CONTACTS_ARN}" \
-  --attributes "RawMessageDelivery=true,FilterPolicyScope=MessageBody,FilterPolicy={\"type\":[\"user.registered\"]}" >/dev/null
+subscribe_sqs "${VIDEO_TOPIC_ARN}" "${STATUS_ARN}"
+subscribe_sqs "${VIDEO_TOPIC_ARN}" "${NOTIF_ARN}" '{"type":["video.failed"]}'
+subscribe_sqs "${USER_TOPIC_ARN}" "${CONTACTS_ARN}" '{"type":["user.registered"]}'
 
-# Bucket local (B7) + lifecycle raw/1d, output/7d, multipart abort 1d
 BUCKET="fiapx-local-videos"
 awslocal s3 mb "s3://${BUCKET}" || true
 awslocal s3api put-bucket-encryption \
   --bucket "${BUCKET}" \
-  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' >/dev/null || true
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' \
+  >/dev/null || true
 awslocal s3api put-public-access-block \
   --bucket "${BUCKET}" \
-  --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true >/dev/null || true
+  --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+  >/dev/null || true
+
+cat >/tmp/fiapx-lifecycle.json <<'EOF'
+{
+  "Rules": [
+    {
+      "ID": "expire-raw",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "raw/"},
+      "Expiration": {"Days": 1}
+    },
+    {
+      "ID": "expire-output",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "output/"},
+      "Expiration": {"Days": 7}
+    },
+    {
+      "ID": "abort-multipart",
+      "Status": "Enabled",
+      "Filter": {"Prefix": ""},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
+    }
+  ]
+}
+EOF
 awslocal s3api put-bucket-lifecycle-configuration \
   --bucket "${BUCKET}" \
-  --lifecycle-configuration '{
-    "Rules": [
-      {
-        "ID": "expire-raw",
-        "Status": "Enabled",
-        "Filter": {"Prefix": "raw/"},
-        "Expiration": {"Days": 1}
-      },
-      {
-        "ID": "expire-output",
-        "Status": "Enabled",
-        "Filter": {"Prefix": "output/"},
-        "Expiration": {"Days": 7}
-      },
-      {
-        "ID": "abort-multipart",
-        "Status": "Enabled",
-        "Filter": {"Prefix": ""},
-        "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
-      }
-    ]
-  }' >/dev/null
+  --lifecycle-configuration file:///tmp/fiapx-lifecycle.json \
+  >/dev/null
 
 echo "[fiapx] LocalStack resources ready"
 awslocal sqs list-queues
 awslocal sns list-topics
+awslocal sns list-subscriptions
 awslocal s3 ls

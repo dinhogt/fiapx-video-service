@@ -284,7 +284,7 @@ psql -U auth_svc -c "select * from video.videos"
 ### Push (`develop`)
 | Repo | Commit |
 |---|---|
-| fiapx-video-service | (a registrar após commit) |
+| fiapx-video-service | `981e6fc` |
 
 ### Observações
 - **F0.3** continua aberta.

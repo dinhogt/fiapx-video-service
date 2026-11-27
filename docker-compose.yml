@@ -193,6 +193,7 @@ services:
     volumes:
       - ../fiapx-auth-service:/app
     # Reinstala deps no Linux (engines do Prisma) e aplica migrações (F2.1)
+    # NPM_TOKEN: leitura do GitHub Packages (@dinhogt/fiapx-contracts)
     command:
       [
         'bash',
@@ -201,6 +202,7 @@ services:
       ]
     environment:
       DATABASE_URL: postgresql://auth_svc:change-me@postgres:5432/fiapx?schema=auth&connection_limit=5&sslmode=disable
+      NPM_TOKEN: ${NPM_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -254,6 +256,11 @@ services:
       OTEL_SERVICE_NAME: auth-service
       DATABASE_URL: postgresql://auth_svc:change-me@postgres:5432/fiapx?schema=auth&connection_limit=5&sslmode=disable
       REDIS_URL: redis://redis:6379
+      JWT_ISSUER: http://localhost:3001
+      JWT_AUDIENCE: fiapx-api
+      JWKS_URL: http://localhost:3001/.well-known/jwks.json
+      TRUST_GATEWAY_IP: 'false'
+      USER_EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:fiapx-local-user-events
     depends_on:
       postgres:
         condition: service_healthy

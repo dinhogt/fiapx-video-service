@@ -1,0 +1,2 @@
+export const JWT_AUTH_VERIFIER = Symbol('JWT_AUTH_VERIFIER');
+export const JWT_AUTH_REVOCATION = Symbol('JWT_AUTH_REVOCATION');

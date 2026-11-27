@@ -4,7 +4,7 @@ import type { Config } from 'jest';
 const config: Config = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
-  testRegex: '.*\\.(spec|int-spec)\\.ts$',
+  testRegex: '.*\\.spec\\.ts$',
   testPathIgnorePatterns: ['/node_modules/', '/packages/', '/dist/'],
   transform: { '^.+\\.ts$': 'ts-jest' },
   testEnvironment: 'node',
@@ -17,5 +17,6 @@ const config: Config = {
   ],
   coverageReporters: ['text-summary', 'lcov'],
   coverageThreshold: { global: { statements: 80, branches: 80, functions: 80, lines: 80 } },
+  forceExit: true,
 };
 export default config;

@@ -11,6 +11,7 @@ export default tseslint.config(
       'packages/*/coverage/**',
       'node_modules/**',
       '.yarn/**',
+      'docs/**',
       '**/*.cjs',
       'eslint.config.mjs',
       'packages/*/jest.config.ts',

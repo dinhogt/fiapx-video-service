@@ -263,6 +263,9 @@ services:
       USER_EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:fiapx-local-user-events
       JWT_PRIVATE_KEY_PEM: ${JWT_PRIVATE_KEY_PEM}
       JWT_KID: ${JWT_KID:-local-1}
+      ACCESS_TTL: '900'
+      REFRESH_IDLE_TTL: '3600'
+      SESSION_ABSOLUTE_TTL: '28800'
     depends_on:
       postgres:
         condition: service_healthy

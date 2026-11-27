@@ -1,0 +1,18 @@
+# Job de migração Prisma por serviço (ADR-007). O CD aplica antes do rollout. ADAPTAR: <svc>.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: migrate-<svc>, namespace: fiapx }
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: { eks.amazonaws.com/nodegroup: apps }
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: migrate
+          image: __IMAGE__
+          command: ["npx", "prisma", "migrate", "deploy"]
+          envFrom: [{ secretRef: { name: <svc>-env } }]
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }

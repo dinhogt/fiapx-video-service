@@ -1,0 +1,68 @@
+# video-worker (ADR-009, ADR-014, D34): pool spot dedicado, 1 job por pod, KEDA de 1 a 9.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: video-worker
+  namespace: fiapx
+  annotations: { eks.amazonaws.com/role-arn: "__IRSA_ARN__" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: video-worker, namespace: fiapx, labels: { app: video-worker } }
+spec:
+  selector: { matchLabels: { app: video-worker } }
+  template:
+    metadata:
+      labels: { app: video-worker }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "3000", prometheus.io/path: /metrics }
+    spec:
+      serviceAccountName: video-worker
+      terminationGracePeriodSeconds: 900
+      nodeSelector: { workload: worker }
+      tolerations: [{ key: workload, operator: Equal, value: worker, effect: NoSchedule }]
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: worker
+          image: __IMAGE__
+          envFrom:
+            - configMapRef: { name: video-worker-config }
+            - secretRef: { name: video-worker-env }
+          env: [{ name: WORKER_CONCURRENCY, value: "1" }, { name: MAX_FRAMES, value: "3600" }, { name: PROCESS_TIMEOUT_MS, value: "900000" }]
+          resources:
+            requests: { cpu: "1", memory: 1536Mi, ephemeral-storage: 3Gi }
+            limits: { cpu: "2", memory: 3Gi, ephemeral-storage: 4Gi }
+          readinessProbe: { httpGet: { path: /health/ready, port: 3000 }, periodSeconds: 15 }
+          livenessProbe: { httpGet: { path: /health/live, port: 3000 }, initialDelaySeconds: 20, periodSeconds: 30 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: work, mountPath: /work }, { name: tmp, mountPath: /tmp }]
+      volumes:
+        - { name: work, emptyDir: { sizeLimit: 3Gi } }
+        - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata: { name: video-worker-aws, namespace: fiapx }
+spec: { podIdentity: { provider: aws, identityOwner: workload } }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: video-worker, namespace: fiapx }
+spec:
+  scaleTargetRef: { name: video-worker }
+  minReplicaCount: 1
+  maxReplicaCount: 9
+  pollingInterval: 15
+  cooldownPeriod: 300
+  triggers:
+    - type: aws-sqs-queue
+      authenticationRef: { name: video-worker-aws }
+      metadata:
+        queueURL: "__VIDEO_PROCESS_QUEUE_URL__"
+        queueLength: "1"
+        awsRegion: us-east-1
+        scaleOnInFlight: "true"
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: video-worker, namespace: fiapx }
+spec: { maxUnavailable: 1, selector: { matchLabels: { app: video-worker } } }

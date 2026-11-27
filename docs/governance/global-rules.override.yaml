@@ -1,0 +1,40 @@
+# Override da spec-skills-lib para o Hackathon FIAP X.
+# Destino: fiapx-video-service/spec-skills-lib/rules/global-rules.override.yaml
+# (copiado na Fundação, pacote 2 do WBS). Decisões: D01, D04, D20, D24; AC-01.
+technologies:
+  stack_profile: "nestjs-next-react"
+  cloud_preference: "aws-first"            # ADR-015: AWS é "Uso Excepcional" na lib (justificado)
+  languages: ["TypeScript"]
+  frameworks: ["NestJS"]
+  datastores: ["PostgreSQL", "Redis"]
+  tooling: ["Prisma", "SQS", "SNS", "S3", "ffmpeg", "Terraform", "KEDA"]
+
+architecture:
+  style: "microservices"
+  boundaries:
+    - "api-gateway"
+    - "auth-service"
+    - "video-service"
+    - "video-worker"
+    - "notification-service"
+  patterns:
+    - "hexagonal"
+    - "event-driven"
+    - "transactional-outbox"
+    - "competing-consumers"
+
+quality:
+  test_coverage_target: 80
+  lint_required: true
+
+security:
+  asvs_level: "L1"                          # + controles L2 selecionados (controls-matrix.md)
+  threat_model_required: true
+  dependency_audit_required: true
+
+implementation_level: "mvp"
+
+flow_config:
+  active_flow: "complex-flow"
+  complexity_profile: "high"
+  opc_mode: false

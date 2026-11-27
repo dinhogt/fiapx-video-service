@@ -1,0 +1,59 @@
+# auth-service / video-service (ADR-009, B10, B13, D29, S-05). ADAPTAR: <svc>, nodePort (30081 auth | 30082 video), IRSA ARN.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: <svc>
+  namespace: fiapx
+  annotations: { eks.amazonaws.com/role-arn: "__IRSA_ARN__" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: <svc>, namespace: fiapx, labels: { app: <svc> } }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: <svc> } }
+  template:
+    metadata:
+      labels: { app: <svc> }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "3000", prometheus.io/path: /metrics }
+    spec:
+      serviceAccountName: <svc>
+      nodeSelector: { eks.amazonaws.com/nodegroup: apps }
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: app
+          image: __IMAGE__
+          ports: [{ containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: <svc>-config }
+            - secretRef: { name: <svc>-env }
+          resources:
+            requests: { cpu: 250m, memory: 384Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+          readinessProbe: { httpGet: { path: /health/ready, port: 3000 }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /health/live, port: 3000 }, initialDelaySeconds: 15, periodSeconds: 20 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes: [{ name: tmp, emptyDir: { sizeLimit: 64Mi } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: <svc>, namespace: fiapx }
+spec:
+  type: NodePort
+  selector: { app: <svc> }
+  ports: [{ port: 3000, targetPort: 3000, nodePort: 30081 }]   # ADAPTAR
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: <svc>, namespace: fiapx }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: <svc> }
+  minReplicas: 2
+  maxReplicas: 5
+  metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } } }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: <svc>, namespace: fiapx }
+spec: { minAvailable: 1, selector: { matchLabels: { app: <svc> } } }

@@ -261,6 +261,8 @@ services:
       JWKS_URL: http://localhost:3001/.well-known/jwks.json
       TRUST_GATEWAY_IP: 'false'
       USER_EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:fiapx-local-user-events
+      JWT_PRIVATE_KEY_PEM: ${JWT_PRIVATE_KEY_PEM}
+      JWT_KID: ${JWT_KID:-local-1}
     depends_on:
       postgres:
         condition: service_healthy

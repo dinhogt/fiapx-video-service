@@ -192,7 +192,13 @@ services:
     working_dir: /app
     volumes:
       - ../fiapx-auth-service:/app
-    command: ['bash', '-lc', 'corepack enable && yarn prisma migrate deploy']
+    # Reinstala deps no Linux (engines do Prisma) e aplica migrações (F2.1)
+    command:
+      [
+        'bash',
+        '-lc',
+        'corepack enable && yarn install --immutable && yarn prisma migrate deploy',
+      ]
     environment:
       DATABASE_URL: postgresql://auth_svc:change-me@postgres:5432/fiapx?schema=auth&connection_limit=5&sslmode=disable
     depends_on:

@@ -5,6 +5,7 @@ import {
   type VideoProcessingMessage,
 } from '@dinhogt/fiapx-contracts';
 import type { VideoListCache } from '../domain/ports/video-list-cache';
+import type { ProcessedStatusLabel, VideoMetrics } from '../domain/ports/video-metrics';
 import type { VideoRepository } from '../domain/ports/video-repository';
 import type { Video } from '../domain/video';
 
@@ -26,6 +27,7 @@ export class ApplyStatusEventUseCase {
   constructor(
     private readonly videos: VideoRepository,
     private readonly listCache: VideoListCache,
+    private readonly metrics?: VideoMetrics,
   ) {}
 
   async execute(rawBody: unknown): Promise<ApplyStatusEventResult> {
@@ -67,8 +69,19 @@ export class ApplyStatusEventUseCase {
     }
 
     await this.listCache.bumpVersion(video.userId);
+    this.metrics?.recordProcessed(statusLabelFor(statusMessage));
     return 'applied';
   }
+}
+
+function statusLabelFor(message: StatusMessage): ProcessedStatusLabel {
+  if (message.type === 'video.processing') {
+    return 'PROCESSING';
+  }
+  if (message.type === 'video.processed') {
+    return 'COMPLETED';
+  }
+  return 'FAILED';
 }
 
 function tryApply(video: Video, message: StatusMessage): boolean {

@@ -23,11 +23,14 @@ import {
   PRESIGNED_DOWNLOAD,
   PRESIGNED_UPLOAD,
   VIDEO_LIST_CACHE,
+  VIDEO_METRICS,
   VIDEO_REPOSITORY,
 } from './infrastructure/config/tokens';
 import { HealthService } from './infrastructure/health/health.service';
 import { ExpirePendingUploadsJob } from './infrastructure/jobs/expire-pending-uploads.job';
 import { HousekeepingJob } from './infrastructure/jobs/housekeeping.job';
+import { OutboxMetricsService } from './infrastructure/metrics/outbox-metrics.service';
+import { PromVideoMetrics } from './infrastructure/metrics/prom-video-metrics';
 import { OutboxRelayService } from './infrastructure/messaging/outbox-relay.service';
 import { SqsMessagePublisher } from './infrastructure/messaging/sqs-message-publisher';
 import { VideoStatusConsumerService } from './infrastructure/messaging/video-status-consumer.service';
@@ -83,6 +86,8 @@ export class AppModule implements NestModule {
         { provide: OBJECT_STORAGE, useClass: S3ObjectStorageAdapter },
         { provide: MESSAGE_PUBLISHER, useClass: SqsMessagePublisher },
         { provide: VIDEO_LIST_CACHE, useClass: RedisVideoListCache },
+        { provide: VIDEO_METRICS, useClass: PromVideoMetrics },
+        OutboxMetricsService,
         OutboxRelayService,
         { provide: OUTBOX_RELAY, useExisting: OutboxRelayService },
         {
@@ -91,8 +96,9 @@ export class AppModule implements NestModule {
             videos: PrismaVideoRepository,
             uploads: S3PresignedPostAdapter,
             cache: VideoListCache,
-          ) => new CreateVideoUseCase(videos, uploads, cache),
-          inject: [VIDEO_REPOSITORY, PRESIGNED_UPLOAD, VIDEO_LIST_CACHE],
+            metrics: PromVideoMetrics,
+          ) => new CreateVideoUseCase(videos, uploads, cache, metrics),
+          inject: [VIDEO_REPOSITORY, PRESIGNED_UPLOAD, VIDEO_LIST_CACHE, VIDEO_METRICS],
         },
         {
           provide: ConfirmVideoUseCase,
@@ -123,9 +129,12 @@ export class AppModule implements NestModule {
         },
         {
           provide: ApplyStatusEventUseCase,
-          useFactory: (videos: PrismaVideoRepository, cache: VideoListCache) =>
-            new ApplyStatusEventUseCase(videos, cache),
-          inject: [VIDEO_REPOSITORY, VIDEO_LIST_CACHE],
+          useFactory: (
+            videos: PrismaVideoRepository,
+            cache: VideoListCache,
+            metrics: PromVideoMetrics,
+          ) => new ApplyStatusEventUseCase(videos, cache, metrics),
+          inject: [VIDEO_REPOSITORY, VIDEO_LIST_CACHE, VIDEO_METRICS],
         },
         VideoStatusConsumerService,
         ExpirePendingUploadsJob,

@@ -7,6 +7,10 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { ApplyStatusEventUseCase } from '../../application/apply-status-event.use-case';
 import type { VideoEnv } from '../config/env';
 import { APP_ENV_CONFIG } from '../config/tokens';
+import {
+  readTraceparentFromBody,
+  withMessageTraceparent,
+} from '../observability/trace-context';
 
 const POLL_INTERVAL_MS = 1_000;
 const MAX_MESSAGES = 10;
@@ -84,7 +88,9 @@ export class VideoStatusConsumerService implements OnModuleInit, OnModuleDestroy
 
   /** Used by integration tests to process a single body without SQS. */
   async processBody(body: unknown): Promise<string> {
-    return this.applyStatusEvent.execute(body);
+    return withMessageTraceparent(readTraceparentFromBody(body), () =>
+      this.applyStatusEvent.execute(body),
+    );
   }
 
   private async handleMessage(
@@ -118,7 +124,9 @@ export class VideoStatusConsumerService implements OnModuleInit, OnModuleDestroy
     }
 
     try {
-      const result = await this.applyStatusEvent.execute(parsed);
+      const result = await withMessageTraceparent(readTraceparentFromBody(parsed), () =>
+        this.applyStatusEvent.execute(parsed),
+      );
       if (result === 'invalid_message') {
         this.logger.warn(`Invalid status message deleted (${result})`);
       }

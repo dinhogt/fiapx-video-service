@@ -186,9 +186,14 @@ describe('POST /videos/:id/confirm (F3.4 / AC-21 / AC-22 / AC-23)', () => {
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.type).toBe('video.process');
     expect(outbox[0]?.publishedAt).toBeNull();
-    const payload = outbox[0]?.payload as { type: string; payload: { videoId: string } };
+    const payload = outbox[0]?.payload as {
+      type: string;
+      traceparent: string;
+      payload: { videoId: string };
+    };
     expect(payload.type).toBe('video.process');
     expect(payload.payload.videoId).toBe(videoId);
+    expect(payload.traceparent).toBe('00-cccccccccccccccccccccccccccccccc-dddddddddddddddd-01');
   });
 
   it('AC-23: second confirm is idempotent — still one outbox row', async () => {

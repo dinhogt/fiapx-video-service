@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Fps } from '../domain/fps';
 import type { PresignedUploadPort } from '../domain/ports/presigned-upload';
 import type { VideoListCache } from '../domain/ports/video-list-cache';
+import type { VideoMetrics } from '../domain/ports/video-metrics';
 import type { VideoRepository } from '../domain/ports/video-repository';
 import { type Result, success } from '../domain/result';
 import { Video } from '../domain/video';
@@ -37,6 +38,7 @@ export class CreateVideoUseCase {
     private readonly videos: VideoRepository,
     private readonly uploads: PresignedUploadPort,
     private readonly listCache?: VideoListCache,
+    private readonly metrics?: VideoMetrics,
   ) {}
 
   async execute(command: CreateVideoCommand): Promise<Result<CreatedVideoUpload>> {
@@ -68,6 +70,7 @@ export class CreateVideoUseCase {
 
     await this.videos.save(video);
     await this.listCache?.bumpVersion(command.userId);
+    this.metrics?.recordUpload();
 
     const upload = await this.uploads.createPost({
       bucket: command.bucket,

@@ -1,5 +1,6 @@
 import { buildEnvelope, MessageSource } from '@dinhogt/fiapx-contracts';
 import type { ObjectStoragePort } from '../domain/ports/object-storage';
+import type { OutboxRelay } from '../domain/ports/outbox-relay';
 import type { VideoRepository } from '../domain/ports/video-repository';
 import { failure, type Result, success } from '../domain/result';
 import type { VideoStatus } from '../domain/video';
@@ -23,6 +24,7 @@ export class ConfirmVideoUseCase {
   constructor(
     private readonly videos: VideoRepository,
     private readonly storage: ObjectStoragePort,
+    private readonly outboxRelay?: OutboxRelay,
   ) {}
 
   async execute(command: ConfirmVideoCommand): Promise<Result<ConfirmVideoResult>> {
@@ -72,6 +74,8 @@ export class ConfirmVideoUseCase {
       destination: command.processQueueUrl,
       payload: envelope,
     });
+
+    this.outboxRelay?.kick();
 
     return success({ videoId: video.id, status: video.status });
   }

@@ -73,7 +73,8 @@ describe('ConfirmVideoUseCase (AC-21 / AC-22 / AC-23)', () => {
   it('AC-21: queues video and writes video.process to outbox in one call', async () => {
     const videos = makeRepo();
     const storage = makeStorage(true);
-    const useCase = new ConfirmVideoUseCase(videos, storage);
+    const outboxRelay = { kick: jest.fn() };
+    const useCase = new ConfirmVideoUseCase(videos, storage, outboxRelay);
 
     const result = await useCase.execute({
       videoId,
@@ -111,6 +112,7 @@ describe('ConfirmVideoUseCase (AC-21 / AC-22 / AC-23)', () => {
         }),
       }),
     );
+    expect(outboxRelay.kick).toHaveBeenCalled();
   });
 
   it('AC-22: missing S3 object → OBJECT_MISSING and no outbox', async () => {

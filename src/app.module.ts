@@ -4,17 +4,22 @@ import { LoggerModule } from 'nestjs-pino';
 import type { IncomingMessage } from 'node:http';
 import { ConfirmVideoUseCase } from './application/confirm-video.use-case';
 import { CreateVideoUseCase } from './application/create-video.use-case';
+import type { OutboxRelay } from './domain/ports/outbox-relay';
 import { VideoAccessTokenVerifier } from './infrastructure/auth/video-access-token-verifier';
 import { VideoSessionRevocationChecker } from './infrastructure/auth/video-session-revocation-checker';
 import { RedisService } from './infrastructure/cache/redis.service';
 import type { VideoEnv } from './infrastructure/config/env';
 import {
   APP_ENV_CONFIG,
+  MESSAGE_PUBLISHER,
   OBJECT_STORAGE,
+  OUTBOX_RELAY,
   PRESIGNED_UPLOAD,
   VIDEO_REPOSITORY,
 } from './infrastructure/config/tokens';
 import { HealthService } from './infrastructure/health/health.service';
+import { OutboxRelayService } from './infrastructure/messaging/outbox-relay.service';
+import { SqsMessagePublisher } from './infrastructure/messaging/sqs-message-publisher';
 import { pinoRedactPaths } from './infrastructure/observability/redact';
 import { PrismaService } from './infrastructure/prisma/prisma.service';
 import { PrismaVideoRepository } from './infrastructure/prisma/prisma-video.repository';
@@ -63,6 +68,9 @@ export class AppModule implements NestModule {
         { provide: VIDEO_REPOSITORY, useClass: PrismaVideoRepository },
         { provide: PRESIGNED_UPLOAD, useClass: S3PresignedPostAdapter },
         { provide: OBJECT_STORAGE, useClass: S3ObjectStorageAdapter },
+        { provide: MESSAGE_PUBLISHER, useClass: SqsMessagePublisher },
+        OutboxRelayService,
+        { provide: OUTBOX_RELAY, useExisting: OutboxRelayService },
         {
           provide: CreateVideoUseCase,
           useFactory: (videos: PrismaVideoRepository, uploads: S3PresignedPostAdapter) =>
@@ -71,9 +79,12 @@ export class AppModule implements NestModule {
         },
         {
           provide: ConfirmVideoUseCase,
-          useFactory: (videos: PrismaVideoRepository, storage: S3ObjectStorageAdapter) =>
-            new ConfirmVideoUseCase(videos, storage),
-          inject: [VIDEO_REPOSITORY, OBJECT_STORAGE],
+          useFactory: (
+            videos: PrismaVideoRepository,
+            storage: S3ObjectStorageAdapter,
+            relay: OutboxRelay,
+          ) => new ConfirmVideoUseCase(videos, storage, relay),
+          inject: [VIDEO_REPOSITORY, OBJECT_STORAGE, OUTBOX_RELAY],
         },
         { provide: JWT_AUTH_VERIFIER, useClass: VideoAccessTokenVerifier },
         { provide: JWT_AUTH_REVOCATION, useClass: VideoSessionRevocationChecker },

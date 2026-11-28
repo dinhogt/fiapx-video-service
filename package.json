@@ -20,6 +20,7 @@
     "test": "jest",
     "test:cov": "jest --coverage --runInBand --testRegex='.*\\.(spec|int-spec)\\.ts$' --forceExit",
     "test:int": "jest --runInBand --testRegex='.*\\.int-spec\\.ts$' --forceExit",
+    "test:domain": "jest --coverage --collectCoverageFrom='src/domain/**/*.ts' --coveragePathIgnorePatterns='\\.spec\\.ts$' --coverageThreshold='{\"global\":{\"statements\":90,\"branches\":90,\"functions\":90,\"lines\":90}}' src/domain",
     "prisma": "prisma"
   },
   "dependencies": {

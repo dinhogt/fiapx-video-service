@@ -4,6 +4,7 @@ import {
   ConflictException,
   Controller,
   Get,
+  GoneException,
   HttpCode,
   Inject,
   NotFoundException,
@@ -20,6 +21,7 @@ import {
   CreateVideoUseCase,
   mapCreateVideoError,
 } from '../../application/create-video.use-case';
+import { DownloadVideoUseCase } from '../../application/download-video.use-case';
 import { GetVideoUseCase } from '../../application/get-video.use-case';
 import { ListVideosUseCase } from '../../application/list-videos.use-case';
 import type { VideoEnv } from '../../infrastructure/config/env';
@@ -49,6 +51,7 @@ export class VideosController {
     private readonly confirmVideo: ConfirmVideoUseCase,
     private readonly listVideos: ListVideosUseCase,
     private readonly getVideo: GetVideoUseCase,
+    private readonly downloadVideo: DownloadVideoUseCase,
     @Inject(APP_ENV_CONFIG) private readonly env: VideoEnv,
   ) {}
 
@@ -126,6 +129,27 @@ export class VideosController {
     return result.value;
   }
 
+  @Get(':id/download')
+  async download(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException({ detail: 'Token inválido.' });
+    }
+    if (!UUID_RE.test(id)) {
+      throw new NotFoundException({ detail: 'Vídeo não encontrado.' });
+    }
+
+    const result = await this.downloadVideo.execute({
+      videoId: id,
+      userId,
+      bucket: this.env.S3_BUCKET,
+    });
+    if (!result.ok) {
+      throw mapDownloadFailure(result.code);
+    }
+    return result.value;
+  }
+
   @Get(':id')
   async getById(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     const userId = req.user?.sub;
@@ -194,5 +218,20 @@ function mapConfirmFailure(code: string): Error {
       return new ConflictException({ detail: 'Transição de status inválida.' });
     default:
       return new BadRequestException({ detail: 'Não foi possível confirmar o upload.' });
+  }
+}
+
+function mapDownloadFailure(code: string): Error {
+  switch (code) {
+    case 'VIDEO_NOT_FOUND':
+      return new NotFoundException({ detail: 'Vídeo não encontrado.' });
+    case 'NOT_COMPLETED':
+      return new ConflictException({
+        detail: 'Download disponível apenas para vídeos concluídos.',
+      });
+    case 'OUTPUT_EXPIRED':
+      return new GoneException({ detail: 'O arquivo de saída expirou.' });
+    default:
+      return new BadRequestException({ detail: 'Não foi possível gerar o download.' });
   }
 }

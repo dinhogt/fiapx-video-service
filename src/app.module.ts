@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 import type { IncomingMessage } from 'node:http';
 import { ConfirmVideoUseCase } from './application/confirm-video.use-case';
 import { CreateVideoUseCase } from './application/create-video.use-case';
+import { DownloadVideoUseCase } from './application/download-video.use-case';
 import { GetVideoUseCase } from './application/get-video.use-case';
 import { ListVideosUseCase } from './application/list-videos.use-case';
 import type { OutboxRelay } from './domain/ports/outbox-relay';
@@ -18,6 +19,7 @@ import {
   MESSAGE_PUBLISHER,
   OBJECT_STORAGE,
   OUTBOX_RELAY,
+  PRESIGNED_DOWNLOAD,
   PRESIGNED_UPLOAD,
   VIDEO_LIST_CACHE,
   VIDEO_REPOSITORY,
@@ -29,6 +31,7 @@ import { pinoRedactPaths } from './infrastructure/observability/redact';
 import { PrismaService } from './infrastructure/prisma/prisma.service';
 import { PrismaVideoRepository } from './infrastructure/prisma/prisma-video.repository';
 import { S3ObjectStorageAdapter } from './infrastructure/storage/s3-object-storage.adapter';
+import { S3PresignedGetAdapter } from './infrastructure/storage/s3-presigned-get.adapter';
 import { S3PresignedPostAdapter } from './infrastructure/storage/s3-presigned-post.adapter';
 import {
   CORRELATION_HEADER,
@@ -72,6 +75,7 @@ export class AppModule implements NestModule {
         PrismaService,
         { provide: VIDEO_REPOSITORY, useClass: PrismaVideoRepository },
         { provide: PRESIGNED_UPLOAD, useClass: S3PresignedPostAdapter },
+        { provide: PRESIGNED_DOWNLOAD, useClass: S3PresignedGetAdapter },
         { provide: OBJECT_STORAGE, useClass: S3ObjectStorageAdapter },
         { provide: MESSAGE_PUBLISHER, useClass: SqsMessagePublisher },
         { provide: VIDEO_LIST_CACHE, useClass: RedisVideoListCache },
@@ -106,6 +110,12 @@ export class AppModule implements NestModule {
           provide: GetVideoUseCase,
           useFactory: (videos: PrismaVideoRepository) => new GetVideoUseCase(videos),
           inject: [VIDEO_REPOSITORY],
+        },
+        {
+          provide: DownloadVideoUseCase,
+          useFactory: (videos: PrismaVideoRepository, downloads: S3PresignedGetAdapter) =>
+            new DownloadVideoUseCase(videos, downloads),
+          inject: [VIDEO_REPOSITORY, PRESIGNED_DOWNLOAD],
         },
         { provide: JWT_AUTH_VERIFIER, useClass: VideoAccessTokenVerifier },
         { provide: JWT_AUTH_REVOCATION, useClass: VideoSessionRevocationChecker },

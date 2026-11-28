@@ -52,6 +52,7 @@ function titleForStatus(status: number): string {
     [HttpStatus.FORBIDDEN]: 'Acesso negado',
     [HttpStatus.NOT_FOUND]: 'Não encontrado',
     [HttpStatus.CONFLICT]: 'Conflito',
+    [HttpStatus.GONE]: 'Expirado',
     [HttpStatus.TOO_MANY_REQUESTS]: 'Muitas requisições',
     [HttpStatus.SERVICE_UNAVAILABLE]: 'Serviço indisponível',
   };

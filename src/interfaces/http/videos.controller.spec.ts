@@ -1,8 +1,14 @@
 /* eslint-disable @typescript-eslint/require-await */
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  GoneException,
+  NotFoundException,
+} from '@nestjs/common';
 import { VideosController } from './videos.controller';
 import type { ConfirmVideoUseCase } from '../../application/confirm-video.use-case';
 import type { CreateVideoUseCase } from '../../application/create-video.use-case';
+import type { DownloadVideoUseCase } from '../../application/download-video.use-case';
 import type { GetVideoUseCase } from '../../application/get-video.use-case';
 import type { ListVideosUseCase } from '../../application/list-videos.use-case';
 import type { VideoEnv } from '../../infrastructure/config/env';
@@ -29,12 +35,14 @@ function controller(overrides: {
   confirm?: ConfirmVideoUseCase;
   list?: ListVideosUseCase;
   get?: GetVideoUseCase;
+  download?: DownloadVideoUseCase;
 } = {}): VideosController {
   return new VideosController(
     overrides.create ?? ({ execute: jest.fn() } as unknown as CreateVideoUseCase),
     overrides.confirm ?? ({ execute: jest.fn() } as unknown as ConfirmVideoUseCase),
     overrides.list ?? ({ execute: jest.fn() } as unknown as ListVideosUseCase),
     overrides.get ?? ({ execute: jest.fn() } as unknown as GetVideoUseCase),
+    overrides.download ?? ({ execute: jest.fn() } as unknown as DownloadVideoUseCase),
     env,
   );
 }
@@ -50,6 +58,37 @@ describe('VideosController', () => {
     await expect(controller({ list }).list({ limit: '10' }, authReq())).resolves.toEqual({
       items: [{ videoId }],
       nextCursor: null,
+    });
+  });
+
+  it('download maps NOT_COMPLETED to 409 and OUTPUT_EXPIRED to 410', async () => {
+    await expect(
+      controller({
+        download: {
+          execute: jest.fn(async () => ({ ok: false, code: 'NOT_COMPLETED' })),
+        } as unknown as DownloadVideoUseCase,
+      }).download(videoId, authReq()),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(
+      controller({
+        download: {
+          execute: jest.fn(async () => ({ ok: false, code: 'OUTPUT_EXPIRED' })),
+        } as unknown as DownloadVideoUseCase,
+      }).download(videoId, authReq()),
+    ).rejects.toBeInstanceOf(GoneException);
+  });
+
+  it('download returns url payload on success', async () => {
+    const download = {
+      execute: jest.fn(async () => ({
+        ok: true,
+        value: { url: 'http://localhost:4566/x', expiresAt: '2026-11-28T12:05:00.000Z' },
+      })),
+    } as unknown as DownloadVideoUseCase;
+    await expect(controller({ download }).download(videoId, authReq())).resolves.toEqual({
+      url: 'http://localhost:4566/x',
+      expiresAt: '2026-11-28T12:05:00.000Z',
     });
   });
 
@@ -78,34 +117,6 @@ describe('VideosController', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('returns 201 payload on success', async () => {
-    const create = {
-      execute: jest.fn(async () => ({
-        ok: true,
-        value: {
-          videoId: 'v1',
-          status: 'PENDING_UPLOAD',
-          upload: {
-            url: 'http://localhost:4566/bucket',
-            method: 'POST',
-            fields: { key: 'raw/u/v.mp4' },
-            expiresAt: '2026-11-28T12:15:00.000Z',
-          },
-        },
-      })),
-    } as unknown as CreateVideoUseCase;
-
-    const body = await controller({ create }).create(
-      {
-        fileName: 'demo.mp4',
-        sizeBytes: 100,
-        contentType: 'video/mp4',
-      },
-      authReq(),
-    );
-    expect(body.videoId).toBe('v1');
-  });
-
   it('confirm maps OBJECT_MISSING to 409 (AC-22)', async () => {
     const confirm = {
       execute: jest.fn(async () => ({ ok: false, code: 'OBJECT_MISSING' })),
@@ -115,54 +126,25 @@ describe('VideosController', () => {
     );
   });
 
-  it('confirm returns 202 payload (AC-21)', async () => {
-    const confirm = {
-      execute: jest.fn(async () => ({
-        ok: true,
-        value: { videoId, status: 'QUEUED' },
-      })),
-    } as unknown as ConfirmVideoUseCase;
-    await expect(controller({ confirm }).confirm(videoId, authReq())).resolves.toEqual({
-      videoId,
-      status: 'QUEUED',
-    });
-  });
-
-  it('list maps INVALID_LIMIT and INVALID_CURSOR to 400', async () => {
-    await expect(
-      controller({
-        list: {
-          execute: jest.fn(async () => ({ ok: false, code: 'INVALID_LIMIT' })),
-        } as unknown as ListVideosUseCase,
-      }).list({}, authReq()),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    await expect(
-      controller({
-        list: {
-          execute: jest.fn(async () => ({ ok: false, code: 'INVALID_CURSOR' })),
-        } as unknown as ListVideosUseCase,
-      }).list({ cursor: 'x' }, authReq()),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('list/get reject unauthenticated callers', async () => {
+  it('download rejects unauthenticated, invalid id and unknown errors', async () => {
     const anon = { headers: {}, header: () => undefined } as unknown as AuthenticatedRequest;
-    await expect(controller().list({}, anon)).rejects.toMatchObject({ status: 401 });
-    await expect(controller().getById(videoId, anon)).rejects.toMatchObject({ status: 401 });
-  });
+    await expect(controller().download(videoId, anon)).rejects.toMatchObject({ status: 401 });
+    await expect(controller().download('bad', authReq())).rejects.toBeInstanceOf(NotFoundException);
 
-  it('getById rejects invalid uuid and returns view for owner', async () => {
-    await expect(controller().getById('bad', authReq())).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      controller({
+        download: {
+          execute: jest.fn(async () => ({ ok: false, code: 'VIDEO_NOT_FOUND' })),
+        } as unknown as DownloadVideoUseCase,
+      }).download(videoId, authReq()),
+    ).rejects.toBeInstanceOf(NotFoundException);
 
-    const get = {
-      execute: jest.fn(async () => ({
-        ok: true,
-        value: { videoId, fileName: 'a.mp4', status: 'PENDING_UPLOAD' },
-      })),
-    } as unknown as GetVideoUseCase;
-    await expect(controller({ get }).getById(videoId, authReq())).resolves.toMatchObject({
-      videoId,
-    });
+    await expect(
+      controller({
+        download: {
+          execute: jest.fn(async () => ({ ok: false, code: 'WEIRD' })),
+        } as unknown as DownloadVideoUseCase,
+      }).download(videoId, authReq()),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

@@ -487,6 +487,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@aws-sdk/s3-request-presigner@npm:^3.1179.0":
+  version: 3.1179.0
+  resolution: "@aws-sdk/s3-request-presigner@npm:3.1179.0"
+  dependencies:
+    "@aws-sdk/core": "npm:^3.981.2"
+    "@aws-sdk/signature-v4-multi-region": "npm:^3.996.52"
+    "@aws-sdk/types": "npm:^3.975.1"
+    "@smithy/core": "npm:^3.41.1"
+    "@smithy/types": "npm:^4.20.0"
+    tslib: "npm:^2.6.2"
+  checksum: 10c0/39e70cf3a04433aba9e2f25b25a5f1f7fb3f56e5b8b0e7ce08b58c3e19fdefcf6bd41e9ef6e3cbd74218caa8e3712bf914925bff2e9c5edf6ffdbc572cc9b57e
+  languageName: node
+  linkType: hard
+
 "@aws-sdk/signature-v4-multi-region@npm:^3.996.52":
   version: 3.996.52
   resolution: "@aws-sdk/signature-v4-multi-region@npm:3.996.52"
@@ -5521,6 +5535,7 @@ __metadata:
     "@aws-sdk/client-s3": "npm:^3.1179.0"
     "@aws-sdk/client-sqs": "npm:^3.901.0"
     "@aws-sdk/s3-presigned-post": "npm:^3.1179.0"
+    "@aws-sdk/s3-request-presigner": "npm:^3.1179.0"
     "@dinhogt/fiapx-contracts": "workspace:*"
     "@eslint/js": "npm:^9.39.1"
     "@nestjs/cli": "npm:^11.0.10"

@@ -4,3 +4,4 @@ export const PRESIGNED_UPLOAD = Symbol('PRESIGNED_UPLOAD');
 export const OBJECT_STORAGE = Symbol('OBJECT_STORAGE');
 export const MESSAGE_PUBLISHER = Symbol('MESSAGE_PUBLISHER');
 export const OUTBOX_RELAY = Symbol('OUTBOX_RELAY');
+export const VIDEO_LIST_CACHE = Symbol('VIDEO_LIST_CACHE');

@@ -4,10 +4,14 @@ import { LoggerModule } from 'nestjs-pino';
 import type { IncomingMessage } from 'node:http';
 import { ConfirmVideoUseCase } from './application/confirm-video.use-case';
 import { CreateVideoUseCase } from './application/create-video.use-case';
+import { GetVideoUseCase } from './application/get-video.use-case';
+import { ListVideosUseCase } from './application/list-videos.use-case';
 import type { OutboxRelay } from './domain/ports/outbox-relay';
+import type { VideoListCache } from './domain/ports/video-list-cache';
 import { VideoAccessTokenVerifier } from './infrastructure/auth/video-access-token-verifier';
 import { VideoSessionRevocationChecker } from './infrastructure/auth/video-session-revocation-checker';
 import { RedisService } from './infrastructure/cache/redis.service';
+import { RedisVideoListCache } from './infrastructure/cache/redis-video-list-cache';
 import type { VideoEnv } from './infrastructure/config/env';
 import {
   APP_ENV_CONFIG,
@@ -15,6 +19,7 @@ import {
   OBJECT_STORAGE,
   OUTBOX_RELAY,
   PRESIGNED_UPLOAD,
+  VIDEO_LIST_CACHE,
   VIDEO_REPOSITORY,
 } from './infrastructure/config/tokens';
 import { HealthService } from './infrastructure/health/health.service';
@@ -69,13 +74,17 @@ export class AppModule implements NestModule {
         { provide: PRESIGNED_UPLOAD, useClass: S3PresignedPostAdapter },
         { provide: OBJECT_STORAGE, useClass: S3ObjectStorageAdapter },
         { provide: MESSAGE_PUBLISHER, useClass: SqsMessagePublisher },
+        { provide: VIDEO_LIST_CACHE, useClass: RedisVideoListCache },
         OutboxRelayService,
         { provide: OUTBOX_RELAY, useExisting: OutboxRelayService },
         {
           provide: CreateVideoUseCase,
-          useFactory: (videos: PrismaVideoRepository, uploads: S3PresignedPostAdapter) =>
-            new CreateVideoUseCase(videos, uploads),
-          inject: [VIDEO_REPOSITORY, PRESIGNED_UPLOAD],
+          useFactory: (
+            videos: PrismaVideoRepository,
+            uploads: S3PresignedPostAdapter,
+            cache: VideoListCache,
+          ) => new CreateVideoUseCase(videos, uploads, cache),
+          inject: [VIDEO_REPOSITORY, PRESIGNED_UPLOAD, VIDEO_LIST_CACHE],
         },
         {
           provide: ConfirmVideoUseCase,
@@ -83,8 +92,20 @@ export class AppModule implements NestModule {
             videos: PrismaVideoRepository,
             storage: S3ObjectStorageAdapter,
             relay: OutboxRelay,
-          ) => new ConfirmVideoUseCase(videos, storage, relay),
-          inject: [VIDEO_REPOSITORY, OBJECT_STORAGE, OUTBOX_RELAY],
+            cache: VideoListCache,
+          ) => new ConfirmVideoUseCase(videos, storage, relay, cache),
+          inject: [VIDEO_REPOSITORY, OBJECT_STORAGE, OUTBOX_RELAY, VIDEO_LIST_CACHE],
+        },
+        {
+          provide: ListVideosUseCase,
+          useFactory: (videos: PrismaVideoRepository, cache: VideoListCache) =>
+            new ListVideosUseCase(videos, cache),
+          inject: [VIDEO_REPOSITORY, VIDEO_LIST_CACHE],
+        },
+        {
+          provide: GetVideoUseCase,
+          useFactory: (videos: PrismaVideoRepository) => new GetVideoUseCase(videos),
+          inject: [VIDEO_REPOSITORY],
         },
         { provide: JWT_AUTH_VERIFIER, useClass: VideoAccessTokenVerifier },
         { provide: JWT_AUTH_REVOCATION, useClass: VideoSessionRevocationChecker },

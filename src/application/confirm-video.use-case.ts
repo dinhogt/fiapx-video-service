@@ -1,6 +1,7 @@
 import { buildEnvelope, MessageSource } from '@dinhogt/fiapx-contracts';
 import type { ObjectStoragePort } from '../domain/ports/object-storage';
 import type { OutboxRelay } from '../domain/ports/outbox-relay';
+import type { VideoListCache } from '../domain/ports/video-list-cache';
 import type { VideoRepository } from '../domain/ports/video-repository';
 import { failure, type Result, success } from '../domain/result';
 import type { VideoStatus } from '../domain/video';
@@ -25,6 +26,7 @@ export class ConfirmVideoUseCase {
     private readonly videos: VideoRepository,
     private readonly storage: ObjectStoragePort,
     private readonly outboxRelay?: OutboxRelay,
+    private readonly listCache?: VideoListCache,
   ) {}
 
   async execute(command: ConfirmVideoCommand): Promise<Result<ConfirmVideoResult>> {
@@ -76,6 +78,7 @@ export class ConfirmVideoUseCase {
     });
 
     this.outboxRelay?.kick();
+    await this.listCache?.bumpVersion(command.userId);
 
     return success({ videoId: video.id, status: video.status });
   }

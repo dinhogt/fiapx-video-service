@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Fps } from '../../domain/fps';
-import type { OutboxInsert, VideoRepository } from '../../domain/ports/video-repository';
+import type {
+  ListVideosQuery,
+  OutboxInsert,
+  VideoRepository,
+} from '../../domain/ports/video-repository';
 import { Video } from '../../domain/video';
 import { VideoFile } from '../../domain/video-file';
 import { PrismaService } from './prisma.service';
@@ -49,6 +53,28 @@ export class PrismaVideoRepository implements VideoRepository {
 
   async countOutboxByAggregate(aggregateId: string): Promise<number> {
     return this.prisma.outbox.count({ where: { aggregateId } });
+  }
+
+  async listByUser(query: ListVideosQuery): Promise<Video[]> {
+    const rows = await this.prisma.video.findMany({
+      where: {
+        userId: query.userId,
+        ...(query.cursor
+          ? {
+              OR: [
+                { createdAt: { lt: query.cursor.createdAt } },
+                {
+                  createdAt: query.cursor.createdAt,
+                  id: { lt: query.cursor.id },
+                },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+    });
+    return rows.map(toDomain);
   }
 }
 

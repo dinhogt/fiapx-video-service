@@ -135,9 +135,9 @@ describe('GET /videos auth (AC-13, F2.9)', () => {
       .get('/videos')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(ok.body).toEqual(
-      expect.objectContaining({ userId: '11111111-1111-4111-8111-111111111111' }),
-    );
+    const body = ok.body as { items: unknown[]; nextCursor: string | null };
+    expect(Array.isArray(body.items)).toBe(true);
+    expect(body.nextCursor).toBeNull();
 
     await redis.set(`revoked:sid:${sid}`, '1', 'EX', 60);
     await request(app.getHttpServer())

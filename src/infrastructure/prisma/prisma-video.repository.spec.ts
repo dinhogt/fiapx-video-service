@@ -140,4 +140,23 @@ describe('PrismaVideoRepository', () => {
     const repo = new PrismaVideoRepository(prisma);
     await expect(repo.countOutboxByAggregate(videoId)).resolves.toBe(2);
   });
+
+  it('listByUser applies cursor and limit+1', async () => {
+    const findMany = jest.fn(async () => [row()]);
+    const prisma = { video: { findMany } } as unknown as PrismaService;
+    const repo = new PrismaVideoRepository(prisma);
+    const cursorAt = new Date('2026-11-28T10:00:00.000Z');
+    await repo.listByUser({
+      userId,
+      limit: 20,
+      cursor: { createdAt: cursorAt, id: videoId },
+    });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ userId }),
+        take: 21,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
+  });
 });

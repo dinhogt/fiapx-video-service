@@ -61,6 +61,7 @@ function makeRepo(overrides: Partial<VideoRepository> = {}): VideoRepository {
     findByIdForUser: jest.fn(async () => makeVideo()),
     queueWithOutbox: jest.fn(async () => undefined),
     countOutboxByAggregate: jest.fn(async () => 0),
+    listByUser: jest.fn(async () => []),
     ...overrides,
   };
 }

@@ -9,6 +9,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -19,6 +20,8 @@ import {
   CreateVideoUseCase,
   mapCreateVideoError,
 } from '../../application/create-video.use-case';
+import { GetVideoUseCase } from '../../application/get-video.use-case';
+import { ListVideosUseCase } from '../../application/list-videos.use-case';
 import type { VideoEnv } from '../../infrastructure/config/env';
 import { APP_ENV_CONFIG } from '../../infrastructure/config/tokens';
 import type { AuthenticatedRequest } from '../../shared/jwt-auth';
@@ -32,6 +35,11 @@ const createVideoBodySchema = z.object({
   fps: z.number().optional(),
 });
 
+const listQuerySchema = z.object({
+  limit: z.coerce.number().int().optional(),
+  cursor: z.string().optional(),
+});
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Controller('videos')
@@ -39,6 +47,8 @@ export class VideosController {
   constructor(
     private readonly createVideo: CreateVideoUseCase,
     private readonly confirmVideo: ConfirmVideoUseCase,
+    private readonly listVideos: ListVideosUseCase,
+    private readonly getVideo: GetVideoUseCase,
     @Inject(APP_ENV_CONFIG) private readonly env: VideoEnv,
   ) {}
 
@@ -82,6 +92,57 @@ export class VideosController {
     return result.value;
   }
 
+  @Get()
+  async list(@Query() query: unknown, @Req() req: AuthenticatedRequest) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException({ detail: 'Token inválido.' });
+    }
+
+    const parsed = listQuerySchema.safeParse(query ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        detail: 'Parâmetros de listagem inválidos.',
+        errors: parsed.error.issues.map((issue) => ({
+          field: issue.path.join('.') || 'query',
+          message: issue.message,
+        })),
+      });
+    }
+
+    const result = await this.listVideos.execute({
+      userId,
+      limit: parsed.data.limit,
+      cursor: parsed.data.cursor,
+    });
+    if (!result.ok) {
+      throw new BadRequestException({
+        detail:
+          result.code === 'INVALID_CURSOR'
+            ? 'Cursor de paginação inválido.'
+            : 'Parâmetro limit deve ser um inteiro entre 1 e 100.',
+      });
+    }
+    return result.value;
+  }
+
+  @Get(':id')
+  async getById(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException({ detail: 'Token inválido.' });
+    }
+    if (!UUID_RE.test(id)) {
+      throw new NotFoundException({ detail: 'Vídeo não encontrado.' });
+    }
+
+    const result = await this.getVideo.execute({ videoId: id, userId });
+    if (!result.ok) {
+      throw new NotFoundException({ detail: 'Vídeo não encontrado.' });
+    }
+    return result.value;
+  }
+
   @Post(':id/confirm')
   @HttpCode(202)
   async confirm(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
@@ -108,19 +169,6 @@ export class VideosController {
     return {
       videoId: result.value.videoId,
       status: result.value.status,
-    };
-  }
-
-  @Get()
-  list(@Req() req: AuthenticatedRequest): {
-    items: unknown[];
-    nextCursor: null;
-    userId: string | undefined;
-  } {
-    return {
-      items: [],
-      nextCursor: null,
-      userId: req.user?.sub,
     };
   }
 }

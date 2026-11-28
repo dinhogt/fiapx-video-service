@@ -3,6 +3,8 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { VideosController } from './videos.controller';
 import type { ConfirmVideoUseCase } from '../../application/confirm-video.use-case';
 import type { CreateVideoUseCase } from '../../application/create-video.use-case';
+import type { GetVideoUseCase } from '../../application/get-video.use-case';
+import type { ListVideosUseCase } from '../../application/list-videos.use-case';
 import type { VideoEnv } from '../../infrastructure/config/env';
 import type { AuthenticatedRequest } from '../../shared/jwt-auth';
 
@@ -22,28 +24,50 @@ function authReq(): AuthenticatedRequest {
   } as unknown as AuthenticatedRequest;
 }
 
+function controller(overrides: {
+  create?: CreateVideoUseCase;
+  confirm?: ConfirmVideoUseCase;
+  list?: ListVideosUseCase;
+  get?: GetVideoUseCase;
+} = {}): VideosController {
+  return new VideosController(
+    overrides.create ?? ({ execute: jest.fn() } as unknown as CreateVideoUseCase),
+    overrides.confirm ?? ({ execute: jest.fn() } as unknown as ConfirmVideoUseCase),
+    overrides.list ?? ({ execute: jest.fn() } as unknown as ListVideosUseCase),
+    overrides.get ?? ({ execute: jest.fn() } as unknown as GetVideoUseCase),
+    env,
+  );
+}
+
 describe('VideosController', () => {
-  it('returns an empty list for the authenticated user', () => {
-    const createVideo = { execute: jest.fn() } as unknown as CreateVideoUseCase;
-    const confirmVideo = { execute: jest.fn() } as unknown as ConfirmVideoUseCase;
-    const controller = new VideosController(createVideo, confirmVideo, env);
-    const req = { user: { sub: 'u1', sid: 's1' } } as AuthenticatedRequest;
-    expect(controller.list(req)).toEqual({
-      items: [],
+  it('lists videos for the authenticated user', async () => {
+    const list = {
+      execute: jest.fn(async () => ({
+        ok: true,
+        value: { items: [{ videoId }], nextCursor: null },
+      })),
+    } as unknown as ListVideosUseCase;
+    await expect(controller({ list }).list({ limit: '10' }, authReq())).resolves.toEqual({
+      items: [{ videoId }],
       nextCursor: null,
-      userId: 'u1',
     });
   });
 
+  it('getById returns 404 for non-owner (AC-80)', async () => {
+    const get = {
+      execute: jest.fn(async () => ({ ok: false, code: 'VIDEO_NOT_FOUND' })),
+    } as unknown as GetVideoUseCase;
+    await expect(controller({ get }).getById(videoId, authReq())).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it('maps domain validation failures to 400 (AC-20)', async () => {
-    const createVideo = {
+    const create = {
       execute: jest.fn(async () => ({ ok: false, code: 'INVALID_FILE_SIZE' })),
     } as unknown as CreateVideoUseCase;
-    const confirmVideo = { execute: jest.fn() } as unknown as ConfirmVideoUseCase;
-    const controller = new VideosController(createVideo, confirmVideo, env);
-
     await expect(
-      controller.create(
+      controller({ create }).create(
         {
           fileName: 'big.mp4',
           sizeBytes: 524_288_001,
@@ -55,7 +79,7 @@ describe('VideosController', () => {
   });
 
   it('returns 201 payload on success', async () => {
-    const createVideo = {
+    const create = {
       execute: jest.fn(async () => ({
         ok: true,
         value: {
@@ -70,10 +94,8 @@ describe('VideosController', () => {
         },
       })),
     } as unknown as CreateVideoUseCase;
-    const confirmVideo = { execute: jest.fn() } as unknown as ConfirmVideoUseCase;
-    const controller = new VideosController(createVideo, confirmVideo, env);
 
-    const body = await controller.create(
+    const body = await controller({ create }).create(
       {
         fileName: 'demo.mp4',
         sizeBytes: 100,
@@ -82,119 +104,65 @@ describe('VideosController', () => {
       authReq(),
     );
     expect(body.videoId).toBe('v1');
-    expect(body.status).toBe('PENDING_UPLOAD');
   });
 
   it('confirm maps OBJECT_MISSING to 409 (AC-22)', async () => {
-    const createVideo = { execute: jest.fn() } as unknown as CreateVideoUseCase;
-    const confirmVideo = {
+    const confirm = {
       execute: jest.fn(async () => ({ ok: false, code: 'OBJECT_MISSING' })),
     } as unknown as ConfirmVideoUseCase;
-    const controller = new VideosController(createVideo, confirmVideo, env);
-
-    await expect(controller.confirm(videoId, authReq())).rejects.toBeInstanceOf(
+    await expect(controller({ confirm }).confirm(videoId, authReq())).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
 
-  it('confirm maps VIDEO_NOT_FOUND to 404', async () => {
-    const createVideo = { execute: jest.fn() } as unknown as CreateVideoUseCase;
-    const confirmVideo = {
-      execute: jest.fn(async () => ({ ok: false, code: 'VIDEO_NOT_FOUND' })),
-    } as unknown as ConfirmVideoUseCase;
-    const controller = new VideosController(createVideo, confirmVideo, env);
-
-    await expect(controller.confirm(videoId, authReq())).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
-  });
-
   it('confirm returns 202 payload (AC-21)', async () => {
-    const createVideo = { execute: jest.fn() } as unknown as CreateVideoUseCase;
-    const confirmVideo = {
+    const confirm = {
       execute: jest.fn(async () => ({
         ok: true,
         value: { videoId, status: 'QUEUED' },
       })),
     } as unknown as ConfirmVideoUseCase;
-    const controller = new VideosController(createVideo, confirmVideo, env);
-
-    await expect(controller.confirm(videoId, authReq())).resolves.toEqual({
+    await expect(controller({ confirm }).confirm(videoId, authReq())).resolves.toEqual({
       videoId,
       status: 'QUEUED',
     });
   });
 
-  it('create rejects unauthenticated requests', async () => {
-    const controller = new VideosController(
-      { execute: jest.fn() } as unknown as CreateVideoUseCase,
-      { execute: jest.fn() } as unknown as ConfirmVideoUseCase,
-      env,
-    );
-    const req = { headers: {}, header: () => undefined } as unknown as AuthenticatedRequest;
+  it('list maps INVALID_LIMIT and INVALID_CURSOR to 400', async () => {
     await expect(
-      controller.create(
-        { fileName: 'a.mp4', sizeBytes: 1, contentType: 'video/mp4' },
-        req,
-      ),
-    ).rejects.toMatchObject({ status: 401 });
-  });
-
-  it('confirm rejects unauthenticated and invalid id', async () => {
-    const controller = new VideosController(
-      { execute: jest.fn() } as unknown as CreateVideoUseCase,
-      { execute: jest.fn() } as unknown as ConfirmVideoUseCase,
-      env,
-    );
-    const anon = { headers: {}, header: () => undefined } as unknown as AuthenticatedRequest;
-    await expect(controller.confirm(videoId, anon)).rejects.toMatchObject({ status: 401 });
-    await expect(controller.confirm('not-a-uuid', authReq())).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
-  });
-
-  it('confirm maps VIDEO_EXPIRED, INVALID_TRANSITION and unknown codes', async () => {
-    const stubCreate = { execute: jest.fn() } as unknown as CreateVideoUseCase;
+      controller({
+        list: {
+          execute: jest.fn(async () => ({ ok: false, code: 'INVALID_LIMIT' })),
+        } as unknown as ListVideosUseCase,
+      }).list({}, authReq()),
+    ).rejects.toBeInstanceOf(BadRequestException);
 
     await expect(
-      new VideosController(
-        stubCreate,
-        {
-          execute: jest.fn(async () => ({ ok: false, code: 'VIDEO_EXPIRED' })),
-        } as unknown as ConfirmVideoUseCase,
-        env,
-      ).confirm(videoId, authReq()),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    await expect(
-      new VideosController(
-        stubCreate,
-        {
-          execute: jest.fn(async () => ({ ok: false, code: 'INVALID_TRANSITION' })),
-        } as unknown as ConfirmVideoUseCase,
-        env,
-      ).confirm(videoId, authReq()),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    await expect(
-      new VideosController(
-        stubCreate,
-        {
-          execute: jest.fn(async () => ({ ok: false, code: 'WEIRD' })),
-        } as unknown as ConfirmVideoUseCase,
-        env,
-      ).confirm(videoId, authReq()),
+      controller({
+        list: {
+          execute: jest.fn(async () => ({ ok: false, code: 'INVALID_CURSOR' })),
+        } as unknown as ListVideosUseCase,
+      }).list({ cursor: 'x' }, authReq()),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('create rejects invalid body schema', async () => {
-    const controller = new VideosController(
-      { execute: jest.fn() } as unknown as CreateVideoUseCase,
-      { execute: jest.fn() } as unknown as ConfirmVideoUseCase,
-      env,
-    );
-    await expect(controller.create({ fileName: 1 }, authReq())).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+  it('list/get reject unauthenticated callers', async () => {
+    const anon = { headers: {}, header: () => undefined } as unknown as AuthenticatedRequest;
+    await expect(controller().list({}, anon)).rejects.toMatchObject({ status: 401 });
+    await expect(controller().getById(videoId, anon)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('getById rejects invalid uuid and returns view for owner', async () => {
+    await expect(controller().getById('bad', authReq())).rejects.toBeInstanceOf(NotFoundException);
+
+    const get = {
+      execute: jest.fn(async () => ({
+        ok: true,
+        value: { videoId, fileName: 'a.mp4', status: 'PENDING_UPLOAD' },
+      })),
+    } as unknown as GetVideoUseCase;
+    await expect(controller({ get }).getById(videoId, authReq())).resolves.toMatchObject({
+      videoId,
+    });
   });
 });

@@ -7,6 +7,12 @@ export type OutboxInsert = {
   payload: unknown;
 };
 
+export type ListVideosQuery = {
+  userId: string;
+  limit: number;
+  cursor?: { createdAt: Date; id: string };
+};
+
 export interface VideoRepository {
   save(video: Video): Promise<void>;
   findById(id: string): Promise<Video | null>;
@@ -14,4 +20,6 @@ export interface VideoRepository {
   /** PENDING_UPLOAD → QUEUED and outbox insert in one transaction (AC-21). */
   queueWithOutbox(video: Video, outbox: OutboxInsert): Promise<void>;
   countOutboxByAggregate(aggregateId: string): Promise<number>;
+  /** createdAt DESC, id DESC; returns up to limit+1 rows for nextCursor detection. */
+  listByUser(query: ListVideosQuery): Promise<Video[]>;
 }

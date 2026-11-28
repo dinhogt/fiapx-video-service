@@ -141,6 +141,56 @@ describe('PrismaVideoRepository', () => {
     await expect(repo.countOutboxByAggregate(videoId)).resolves.toBe(2);
   });
 
+  it('recordInboxAndMaybeUpdate inserts inbox and updates video', async () => {
+    const inboxCreate = jest.fn(async () => undefined);
+    const videoUpdate = jest.fn(async () => undefined);
+    const prisma = {
+      $transaction: jest.fn(async (fn: (tx: unknown) => Promise<void>) =>
+        fn({
+          inbox: {
+            findUnique: jest.fn(async () => null),
+            create: inboxCreate,
+          },
+          video: { update: videoUpdate },
+        }),
+      ),
+    } as unknown as PrismaService;
+    const repo = new PrismaVideoRepository(prisma);
+    const video = makeVideo();
+    video.queue();
+    video.markProcessing();
+    await expect(
+      repo.recordInboxAndMaybeUpdate({
+        messageId: '33333333-3333-4333-8333-333333333333',
+        type: 'video.processing',
+        video,
+      }),
+    ).resolves.toBe('saved');
+    expect(inboxCreate).toHaveBeenCalled();
+    expect(videoUpdate).toHaveBeenCalled();
+  });
+
+  it('recordInboxAndMaybeUpdate returns duplicate when message exists', async () => {
+    const prisma = {
+      $transaction: jest.fn(async (fn: (tx: unknown) => Promise<void>) =>
+        fn({
+          inbox: {
+            findUnique: jest.fn(async () => ({ messageId: 'x' })),
+            create: jest.fn(),
+          },
+          video: { update: jest.fn() },
+        }),
+      ),
+    } as unknown as PrismaService;
+    const repo = new PrismaVideoRepository(prisma);
+    await expect(
+      repo.recordInboxAndMaybeUpdate({
+        messageId: '33333333-3333-4333-8333-333333333333',
+        type: 'video.processing',
+      }),
+    ).resolves.toBe('duplicate');
+  });
+
   it('listByUser applies cursor and limit+1', async () => {
     const findMany = jest.fn(async () => [row()]);
     const prisma = { video: { findMany } } as unknown as PrismaService;

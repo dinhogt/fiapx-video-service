@@ -57,6 +57,7 @@ describe('ListVideosUseCase (AC-40)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => [v1, v2, v3]),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const cache = makeCache();
     const useCase = new ListVideosUseCase(videos, cache);
@@ -80,6 +81,7 @@ describe('ListVideosUseCase (AC-40)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const cached = { items: [], nextCursor: null };
     const cache = makeCache({
@@ -99,6 +101,7 @@ describe('ListVideosUseCase (AC-40)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const useCase = new ListVideosUseCase(videos, makeCache());
     await expect(useCase.execute({ userId, limit: 0 })).resolves.toMatchObject({

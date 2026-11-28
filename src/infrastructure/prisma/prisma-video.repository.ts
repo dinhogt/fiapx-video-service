@@ -76,6 +76,56 @@ export class PrismaVideoRepository implements VideoRepository {
     });
     return rows.map(toDomain);
   }
+
+  async recordInboxAndMaybeUpdate(input: {
+    messageId: string;
+    type: string;
+    video?: Video;
+  }): Promise<'duplicate' | 'saved'> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const existing = await tx.inbox.findUnique({ where: { messageId: input.messageId } });
+        if (existing) {
+          throw new DuplicateInboxError();
+        }
+        await tx.inbox.create({
+          data: {
+            messageId: input.messageId,
+            type: input.type,
+          },
+        });
+        if (input.video) {
+          const video = input.video;
+          await tx.video.update({
+            where: { id: video.id },
+            data: {
+              status: video.status,
+              updatedAt: video.updatedAt,
+              outputKey: video.outputKey,
+              frameCount: video.frameCount,
+              zipSizeBytes: video.zipSizeBytes,
+              failureCode: video.failureCode,
+              failureMessage: video.failureMessage,
+              startedAt: video.startedAt,
+              completedAt: video.completedAt,
+            },
+          });
+        }
+      });
+      return 'saved';
+    } catch (error: unknown) {
+      if (error instanceof DuplicateInboxError) {
+        return 'duplicate';
+      }
+      throw error;
+    }
+  }
+}
+
+class DuplicateInboxError extends Error {
+  constructor() {
+    super('duplicate inbox');
+  }
 }
 
 type VideoRow = {

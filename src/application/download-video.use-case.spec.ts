@@ -54,6 +54,7 @@ describe('DownloadVideoUseCase (AC-50 / AC-51 / E-03)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const downloads: PresignedDownloadPort = {
       createGet: jest.fn(async () => ({
@@ -114,6 +115,7 @@ describe('DownloadVideoUseCase (AC-50 / AC-51 / E-03)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const downloads: PresignedDownloadPort = { createGet: jest.fn() };
     const result = await new DownloadVideoUseCase(videos, downloads).execute({
@@ -134,6 +136,7 @@ describe('DownloadVideoUseCase (AC-50 / AC-51 / E-03)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const downloads: PresignedDownloadPort = { createGet: jest.fn() };
     const now = new Date(completedAt.getTime() + OUTPUT_TTL_MS + 1);
@@ -154,6 +157,7 @@ describe('DownloadVideoUseCase (AC-50 / AC-51 / E-03)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const result = await new DownloadVideoUseCase(videos, { createGet: jest.fn() }).execute({
       videoId,
@@ -173,6 +177,7 @@ describe('DownloadVideoUseCase (AC-50 / AC-51 / E-03)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const result = await new DownloadVideoUseCase(videos, { createGet: jest.fn() }).execute({
       videoId,

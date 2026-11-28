@@ -22,4 +22,13 @@ export interface VideoRepository {
   countOutboxByAggregate(aggregateId: string): Promise<number>;
   /** createdAt DESC, id DESC; returns up to limit+1 rows for nextCursor detection. */
   listByUser(query: ListVideosQuery): Promise<Video[]>;
+  /**
+   * Inbox + optional video update in one transaction (B2).
+   * Returns `duplicate` when messageId already exists (idempotent).
+   */
+  recordInboxAndMaybeUpdate(input: {
+    messageId: string;
+    type: string;
+    video?: Video;
+  }): Promise<'duplicate' | 'saved'>;
 }

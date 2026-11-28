@@ -39,6 +39,7 @@ describe('GetVideoUseCase (AC-80)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const result = await new GetVideoUseCase(videos).execute({ videoId, userId });
     expect(result.ok).toBe(true);
@@ -57,6 +58,7 @@ describe('GetVideoUseCase (AC-80)', () => {
       queueWithOutbox: jest.fn(),
       countOutboxByAggregate: jest.fn(),
       listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     };
     const result = await new GetVideoUseCase(videos).execute({ videoId, userId });
     expect(result).toEqual({ ok: false, code: 'VIDEO_NOT_FOUND' });

@@ -20,6 +20,7 @@ function makeRepo(overrides: Partial<VideoRepository> = {}): VideoRepository {
     queueWithOutbox: jest.fn(async () => undefined),
     countOutboxByAggregate: jest.fn(async () => 0),
     listByUser: jest.fn(async () => []),
+      recordInboxAndMaybeUpdate: jest.fn(async () => 'saved' as const),
     ...overrides,
   };
 }

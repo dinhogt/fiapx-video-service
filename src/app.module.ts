@@ -2,6 +2,7 @@ import { DynamicModule, MiddlewareConsumer, Module, NestModule } from '@nestjs/c
 import { APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import type { IncomingMessage } from 'node:http';
+import { ApplyStatusEventUseCase } from './application/apply-status-event.use-case';
 import { ConfirmVideoUseCase } from './application/confirm-video.use-case';
 import { CreateVideoUseCase } from './application/create-video.use-case';
 import { DownloadVideoUseCase } from './application/download-video.use-case';
@@ -27,6 +28,7 @@ import {
 import { HealthService } from './infrastructure/health/health.service';
 import { OutboxRelayService } from './infrastructure/messaging/outbox-relay.service';
 import { SqsMessagePublisher } from './infrastructure/messaging/sqs-message-publisher';
+import { VideoStatusConsumerService } from './infrastructure/messaging/video-status-consumer.service';
 import { pinoRedactPaths } from './infrastructure/observability/redact';
 import { PrismaService } from './infrastructure/prisma/prisma.service';
 import { PrismaVideoRepository } from './infrastructure/prisma/prisma-video.repository';
@@ -117,6 +119,13 @@ export class AppModule implements NestModule {
             new DownloadVideoUseCase(videos, downloads),
           inject: [VIDEO_REPOSITORY, PRESIGNED_DOWNLOAD],
         },
+        {
+          provide: ApplyStatusEventUseCase,
+          useFactory: (videos: PrismaVideoRepository, cache: VideoListCache) =>
+            new ApplyStatusEventUseCase(videos, cache),
+          inject: [VIDEO_REPOSITORY, VIDEO_LIST_CACHE],
+        },
+        VideoStatusConsumerService,
         { provide: JWT_AUTH_VERIFIER, useClass: VideoAccessTokenVerifier },
         { provide: JWT_AUTH_REVOCATION, useClass: VideoSessionRevocationChecker },
         { provide: APP_GUARD, useClass: JwtAuthGuard },

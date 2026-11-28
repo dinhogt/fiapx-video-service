@@ -6,3 +6,61 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum VideoStatus {
+  PENDING_UPLOAD
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+model Video {
+  id             String      @id @default(uuid()) @db.Uuid
+  userId         String      @map("user_id") @db.Uuid
+  fileName       String      @map("file_name") @db.VarChar(255)
+  contentType    String      @map("content_type") @db.VarChar(40)
+  sizeBytes      BigInt      @map("size_bytes")
+  fps            Decimal     @db.Decimal(2, 1)
+  status         VideoStatus
+  inputKey       String      @map("input_key")
+  outputKey      String?     @map("output_key")
+  frameCount     Int?        @map("frame_count")
+  zipSizeBytes   BigInt?     @map("zip_size_bytes")
+  failureCode    String?     @map("failure_code") @db.VarChar(30)
+  failureMessage String?     @map("failure_message") @db.VarChar(500)
+  correlationId  String      @map("correlation_id") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  queuedAt       DateTime?   @map("queued_at") @db.Timestamptz(3)
+  startedAt      DateTime?   @map("started_at") @db.Timestamptz(3)
+  completedAt    DateTime?   @map("completed_at") @db.Timestamptz(3)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "videos_user_id_created_at_id_idx")
+  @@index([status, updatedAt], map: "videos_status_updated_at_idx")
+  @@map("videos")
+}
+
+model Outbox {
+  id          String    @id @default(uuid()) @db.Uuid
+  aggregateId String    @map("aggregate_id") @db.Uuid
+  type        String    @db.VarChar(60)
+  destination String    @db.VarChar(120)
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
+
+  @@index([createdAt], map: "outbox_created_at_idx")
+  @@map("outbox")
+}
+
+model Inbox {
+  messageId   String   @id @map("message_id") @db.Uuid
+  type        String   @db.VarChar(60)
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz(3)
+
+  @@map("inbox")
+}

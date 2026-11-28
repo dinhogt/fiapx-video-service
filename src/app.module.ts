@@ -26,6 +26,8 @@ import {
   VIDEO_REPOSITORY,
 } from './infrastructure/config/tokens';
 import { HealthService } from './infrastructure/health/health.service';
+import { ExpirePendingUploadsJob } from './infrastructure/jobs/expire-pending-uploads.job';
+import { HousekeepingJob } from './infrastructure/jobs/housekeeping.job';
 import { OutboxRelayService } from './infrastructure/messaging/outbox-relay.service';
 import { SqsMessagePublisher } from './infrastructure/messaging/sqs-message-publisher';
 import { VideoStatusConsumerService } from './infrastructure/messaging/video-status-consumer.service';
@@ -126,6 +128,8 @@ export class AppModule implements NestModule {
           inject: [VIDEO_REPOSITORY, VIDEO_LIST_CACHE],
         },
         VideoStatusConsumerService,
+        ExpirePendingUploadsJob,
+        HousekeepingJob,
         { provide: JWT_AUTH_VERIFIER, useClass: VideoAccessTokenVerifier },
         { provide: JWT_AUTH_REVOCATION, useClass: VideoSessionRevocationChecker },
         { provide: APP_GUARD, useClass: JwtAuthGuard },

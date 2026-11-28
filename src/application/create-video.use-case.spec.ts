@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-assignment */
-import { CreateVideoUseCase, PRESIGNED_POST_TTL_SECONDS } from './create-video.use-case';
+import {
+  CreateVideoUseCase,
+  mapCreateVideoError,
+  PRESIGNED_POST_TTL_SECONDS,
+} from './create-video.use-case';
 import type { PresignedUploadPort } from '../domain/ports/presigned-upload';
 import type { VideoRepository } from '../domain/ports/video-repository';
 import { MAX_VIDEO_SIZE_BYTES } from '../domain/video-file';
@@ -12,6 +16,9 @@ function makeRepo(overrides: Partial<VideoRepository> = {}): VideoRepository {
   return {
     save: jest.fn(async () => undefined),
     findById: jest.fn(async () => null),
+    findByIdForUser: jest.fn(async () => null),
+    queueWithOutbox: jest.fn(async () => undefined),
+    countOutboxByAggregate: jest.fn(async () => 0),
     ...overrides,
   };
 }
@@ -110,5 +117,10 @@ describe('CreateVideoUseCase (AC-20 / D25 / B7)', () => {
     expect(result.code).toBe(code);
     expect(videos.save).not.toHaveBeenCalled();
     expect(uploads.createPost).not.toHaveBeenCalled();
+  });
+
+  it('mapCreateVideoError covers known and unknown codes', () => {
+    expect(mapCreateVideoError('INVALID_FILE_NAME').detail).toMatch(/Nome/);
+    expect(mapCreateVideoError('UNKNOWN').detail).toMatch(/inválidos/i);
   });
 });

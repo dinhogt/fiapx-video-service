@@ -1,16 +1,20 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   HttpCode,
   Inject,
+  NotFoundException,
+  Param,
   Post,
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { ConfirmVideoUseCase } from '../../application/confirm-video.use-case';
 import {
   CreateVideoUseCase,
   mapCreateVideoError,
@@ -19,6 +23,7 @@ import type { VideoEnv } from '../../infrastructure/config/env';
 import { APP_ENV_CONFIG } from '../../infrastructure/config/tokens';
 import type { AuthenticatedRequest } from '../../shared/jwt-auth';
 import { CORRELATION_HEADER, readCorrelationId } from './correlation.middleware';
+import { buildTraceparent } from './traceparent';
 
 const createVideoBodySchema = z.object({
   fileName: z.string(),
@@ -33,6 +38,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export class VideosController {
   constructor(
     private readonly createVideo: CreateVideoUseCase,
+    private readonly confirmVideo: ConfirmVideoUseCase,
     @Inject(APP_ENV_CONFIG) private readonly env: VideoEnv,
   ) {}
 
@@ -76,6 +82,35 @@ export class VideosController {
     return result.value;
   }
 
+  @Post(':id/confirm')
+  @HttpCode(202)
+  async confirm(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException({ detail: 'Token inválido.' });
+    }
+    if (!UUID_RE.test(id)) {
+      throw new NotFoundException({ detail: 'Vídeo não encontrado.' });
+    }
+
+    const result = await this.confirmVideo.execute({
+      videoId: id,
+      userId,
+      bucket: this.env.S3_BUCKET,
+      processQueueUrl: this.env.VIDEO_PROCESS_QUEUE_URL,
+      traceparent: buildTraceparent(req.header('traceparent')),
+    });
+
+    if (!result.ok) {
+      throw mapConfirmFailure(result.code);
+    }
+
+    return {
+      videoId: result.value.videoId,
+      status: result.value.status,
+    };
+  }
+
   @Get()
   list(@Req() req: AuthenticatedRequest): {
     items: unknown[];
@@ -95,4 +130,21 @@ function ensureUuidCorrelation(value: string): string {
     return value;
   }
   return randomUUID();
+}
+
+function mapConfirmFailure(code: string): Error {
+  switch (code) {
+    case 'VIDEO_NOT_FOUND':
+      return new NotFoundException({ detail: 'Vídeo não encontrado.' });
+    case 'OBJECT_MISSING':
+      return new ConflictException({
+        detail: 'Objeto ainda não está disponível no armazenamento.',
+      });
+    case 'VIDEO_EXPIRED':
+      return new ConflictException({ detail: 'Upload expirado.' });
+    case 'INVALID_TRANSITION':
+      return new ConflictException({ detail: 'Transição de status inválida.' });
+    default:
+      return new BadRequestException({ detail: 'Não foi possível confirmar o upload.' });
+  }
 }

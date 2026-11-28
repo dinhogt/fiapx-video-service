@@ -953,7 +953,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@dinhogt/fiapx-contracts@workspace:packages/contracts":
+"@dinhogt/fiapx-contracts@workspace:*, @dinhogt/fiapx-contracts@workspace:packages/contracts":
   version: 0.0.0-use.local
   resolution: "@dinhogt/fiapx-contracts@workspace:packages/contracts"
   dependencies:
@@ -5521,6 +5521,7 @@ __metadata:
     "@aws-sdk/client-s3": "npm:^3.1179.0"
     "@aws-sdk/client-sqs": "npm:^3.901.0"
     "@aws-sdk/s3-presigned-post": "npm:^3.1179.0"
+    "@dinhogt/fiapx-contracts": "workspace:*"
     "@eslint/js": "npm:^9.39.1"
     "@nestjs/cli": "npm:^11.0.10"
     "@nestjs/common": "npm:^11.1.6"
